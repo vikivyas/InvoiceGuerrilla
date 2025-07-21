@@ -7,9 +7,9 @@ set -e
 
     if [ -f ".inmanage/.env.inmanage" ]; then
         user=$(grep '^INM_ENFORCED_USER=' .inmanage/.env.inmanage | cut -d= -f2 | tr -d '"')
-        log info "Try: sudo -u ${user:-{your-user}} bash ./inmanage.sh"
+        log info "If you intended to run as a specific user (e.g., web server user), ensure you have the necessary permissions for file operations."
     else
-        log info "Try: sudo -u {your-user} bash ./inmanage.sh"
+        log info "Ensure your current user has appropriate permissions for file operations."
     fi
 
     exit 1
@@ -66,7 +66,7 @@ declare -A default_settings=(
     ["INM_DUMP_OPTIONS"]="--default-character-set=utf8mb4 --no-tablespaces --skip-add-drop-table --quick --single-transaction"
     ["INM_BACKUP_DIRECTORY"]="./_in_backups"
     ["INM_FORCE_READ_DB_PW"]="N"
-    ["INM_ENFORCED_USER"]="www-data"
+    ["INM_ENFORCED_USER"]="$(whoami)" # Changed default to current user
     ["INM_ENFORCED_SHELL"]="$(command -v bash)"
     ["INM_PHP_EXECUTABLE"]="$(command -v php)"
     ["INM_ARTISAN_STRING"]="\${INM_PHP_EXECUTABLE} \${INM_BASE_DIRECTORY}\${INM_INSTALLATION_DIRECTORY}/artisan"
@@ -93,7 +93,7 @@ declare -A prompt_texts=(
     ["INM_DUMP_OPTIONS"]="Modify database dump options: In doubt, keep defaults."
     ["INM_BACKUP_DIRECTORY"]="Backup Directory?"
     ["INM_FORCE_READ_DB_PW"]="Include DB password in backup? (Y): May expose the password to other server users during runtime. (N): Assumes a secure .my.cnf file with credentials to avoid exposure."
-    ["INM_ENFORCED_USER"]="Script user? Usually the webserver user. Ensure it matches your webserver setup."
+    ["INM_ENFORCED_USER"]="Script user? This script will run as the current user. Ensure it matches who you want to own the files. Default is your current user ($(whoami))." # Updated prompt
     ["INM_ENFORCED_SHELL"]="Which shell should be used? In doubt, keep as is."
     ["INM_PHP_EXECUTABLE"]="Path to the PHP executable? In doubt, keep as is."
     ["INM_KEEP_BACKUPS"]="Backup retention? Set to 7 for daily backups to keep 7 snapshots. Ensure enough disk space."
@@ -133,133 +133,130 @@ parse_options() {
 
 print_logo() {
     printf "${BLUE}"
-    printf "    _____   __                                       __\n"
-    printf "   /  _/ | / /___ ___  ____ _____  ____ _____ ____  / /\n"
-    printf "   / //  |/ / __ \`__ \\/ __ \`/ __ \\/ __ \`/ __ \`/ _ \\/ / \n"
+    printf "    _____  __              __\n"
+    printf "   / _/ | / /___ ___  ____ _____  ____ _____ ____  / /\n"
+    printf "  / // |/ / __ \`__ \\/ __ \`/ __ \\/ __ \`/ __ \`/ _ \\/ / \n"
     printf " _/ // /|  / / / / / / /_/ / / / / /_/ / /_/ /  __/_/  \n"
     printf "/___/_/ |_/_/ /_/ /_/\\__,_/_/ /_/\\__,_/\\__, /\\___(_)   \n"
-    printf "                                      /____/           ${RESET}\n"
+    printf "                                      /____/         ${RESET}\n"
     printf "${BLUE}${BOLD}INVOICE NINJA - MANAGEMENT SCRIPT${RESET}\n\n"
     printf "\n\n"
 }
 
-
-
 create_database() {
-  local username="$1"
-  local password="$2"
+    local username="$1"
+    local password="$2"
 
-  if [ -z "$username" ]; then
-    username=$(prompt "DB_ELEVATED_USERNAME" "" "Enter a DB username with create database permissions.")
-    log info "Enter the password (input will be hidden):"
-    read -s password
-  fi
-
-  if [ -z "$password" ]; then
-    log info "No password given: Assuming .my.cnf credentials connection."
-    mysql -h "$DB_HOST" -P "$DB_PORT" -u "$username" <<EOF
-CREATE DATABASE IF NOT EXISTS $DB_DATABASE DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
-CREATE USER IF NOT EXISTS '$DB_USERNAME'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
-GRANT ALL PRIVILEGES ON $DB_DATABASE.* TO '$DB_USERNAME'@'localhost' WITH GRANT OPTION;
-FLUSH PRIVILEGES;
-
-CREATE USER IF NOT EXISTS '$DB_USERNAME'@'$DB_HOST' IDENTIFIED BY '$DB_PASSWORD';
-GRANT ALL PRIVILEGES ON $DB_DATABASE.* TO '$DB_USERNAME'@'$DB_HOST' WITH GRANT OPTION;
-FLUSH PRIVILEGES;
-EOF
-  else
-    mysql -h "$DB_HOST" -P "$DB_PORT" -u "$username" -p"$password" <<EOF
-CREATE DATABASE IF NOT EXISTS $DB_DATABASE DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
-CREATE USER IF NOT EXISTS '$DB_USERNAME'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
-GRANT ALL PRIVILEGES ON $DB_DATABASE.* TO '$DB_USERNAME'@'localhost' WITH GRANT OPTION;
-FLUSH PRIVILEGES;
-
-CREATE USER IF NOT EXISTS '$DB_USERNAME'@'$DB_HOST' IDENTIFIED BY '$DB_PASSWORD';
-GRANT ALL PRIVILEGES ON $DB_DATABASE.* TO '$DB_USERNAME'@'$DB_HOST' WITH GRANT OPTION;
-FLUSH PRIVILEGES;
-EOF
-  fi
-
-  if [ $? -eq 0 ]; then
-    log ok "Database and user created successfully. If they already existed, they were untouched. Privileges were granted."
-    if [ -f "$INM_PROVISION_ENV_FILE" ]; then
-      sed -i '/^DB_ELEVATED_USERNAME/d' "$INM_PROVISION_ENV_FILE"
-      sed -i '/^DB_ELEVATED_PASSWORD/d' "$INM_PROVISION_ENV_FILE"
-      log info "Removed DB_ELEVATED_USERNAME and DB_ELEVATED_PASSWORD from $INM_PROVISION_ENV_FILE if they were there."
-    else
-      log warn "$INM_PROVISION_ENV_FILE not found, cannot remove elevated credentials."
+    if [ -z "$username" ]; then
+        username=$(prompt_var "DB_ELEVATED_USERNAME" "" "Enter a DB username with create database permissions.")
+        log info "Enter the password (input will be hidden):"
+        read -s password
     fi
-  else
-    log err "Failed to create database and user."
-    exit 1
-  fi
+
+    if [ -z "$password" ]; then
+        log info "No password given: Assuming .my.cnf credentials connection."
+        mysql -h "$DB_HOST" -P "$DB_PORT" -u "$username" <<EOF
+CREATE DATABASE IF NOT EXISTS $DB_DATABASE DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
+CREATE USER IF NOT EXISTS '$DB_USERNAME'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+GRANT ALL PRIVILEGES ON $DB_DATABASE.* TO '$DB_USERNAME'@'localhost' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+
+CREATE USER IF NOT EXISTS '$DB_USERNAME'@'$DB_HOST' IDENTIFIED BY '$DB_PASSWORD';
+GRANT ALL PRIVILEGES ON $DB_DATABASE.* TO '$DB_USERNAME'@'$DB_HOST' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+EOF
+    else
+        mysql -h "$DB_HOST" -P "$DB_PORT" -u "$username" -p"$password" <<EOF
+CREATE DATABASE IF NOT EXISTS $DB_DATABASE DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
+CREATE USER IF NOT EXISTS '$DB_USERNAME'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+GRANT ALL PRIVILEGES ON $DB_DATABASE.* TO '$DB_USERNAME'@'localhost' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+
+CREATE USER IF NOT EXISTS '$DB_USERNAME'@'$DB_HOST' IDENTIFIED BY '$DB_PASSWORD';
+GRANT ALL PRIVILEGES ON $DB_DATABASE.* TO '$DB_USERNAME'@'$DB_HOST' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+EOF
+    fi
+
+    if [ $? -eq 0 ]; then
+        log ok "Database and user created successfully. If they already existed, they were untouched. Privileges were granted."
+        if [ -f "$INM_PROVISION_ENV_FILE" ]; then
+            sed -i '/^DB_ELEVATED_USERNAME/d' "$INM_PROVISION_ENV_FILE"
+            sed -i '/^DB_ELEVATED_PASSWORD/d' "$INM_PROVISION_ENV_FILE"
+            log info "Removed DB_ELEVATED_USERNAME and DB_ELEVATED_PASSWORD from $INM_PROVISION_ENV_FILE if they were there."
+        else
+            log warn "$INM_PROVISION_ENV_FILE not found, cannot remove elevated credentials."
+        fi
+    else
+        log err "Failed to create database and user."
+        exit 1
+    fi
 }
 
 check_provision_file() {
-  if [ -f "$INM_PROVISION_ENV_FILE" ]; then
-    . "$INM_PROVISION_ENV_FILE"
+    if [ -f "$INM_PROVISION_ENV_FILE" ]; then
+        . "$INM_PROVISION_ENV_FILE"
 
-    if [ -z "$DB_HOST" ] || [ -z "$DB_DATABASE" ] || [ -z "$DB_USERNAME" ] || [ -z "$DB_PORT" ]; then
-      log err "Some DB variables are missing in provision file."
-      exit 1
-    fi
+        if [ -z "$DB_HOST" ] || [ -z "$DB_DATABASE" ] || [ -z "$DB_USERNAME" ] || [ -z "$DB_PORT" ]; then
+            log err "Some DB variables are missing in provision file."
+            exit 1
+        fi
 
-    log ok "Provision file loaded. Installation starts now."
+        log ok "Provision file loaded. Installation starts now."
 
-    if [ -n "$DB_ELEVATED_USERNAME" ]; then
-      log info "Elevated SQL user $DB_ELEVATED_USERNAME found in $INM_PROVISION_ENV_FILE."
-      elevated_username="$DB_ELEVATED_USERNAME"
-      elevated_password="$DB_ELEVATED_PASSWORD"
+        if [ -n "$DB_ELEVATED_USERNAME" ]; then
+            log info "Elevated SQL user $DB_ELEVATED_USERNAME found in $INM_PROVISION_ENV_FILE."
+            elevated_username="$DB_ELEVATED_USERNAME"
+            elevated_password="$DB_ELEVATED_PASSWORD"
+        else
+            log info "No elevated SQL username found. Continuing with standard credentials."
+            elevated_username=""
+            elevated_password=""
+        fi
+
+        if [ -n "$elevated_username" ]; then
+            if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$elevated_username" -p"$elevated_password" -e 'quit'; then
+                log ok "Elevated credentials: Connection successful."
+                if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$elevated_username" -p"$elevated_password" -e "use $DB_DATABASE"; then
+                    log ok "Connection Possible. Database already exists."
+                else
+                    log warn "Connection Possible. Database does not exist."
+                    log info "Trying to create database now."
+                    create_database "$elevated_username" "$elevated_password"
+                fi
+            else
+                log err "Failed to connect using elevated credentials. Check your elevated DB credentials and connection settings."
+                if [ -z "$elevated_password" ]; then
+                    elevated_password=$(prompt_var "DB_ELEVATED_PASSWORD" "" "Enter the password for elevated user")
+                fi
+                if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$elevated_username" -p"$elevated_password" -e 'quit'; then
+                    log debug "Connection successful with provided elevated credentials."
+                    if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$elevated_username" -p"$elevated_password" -e "use $DB_DATABASE"; then
+                        log ok "Connection Possible. Database already exists."
+                    else
+                        create_database "$elevated_username" "$elevated_password"
+                    fi
+                else
+                    exit 1
+                fi
+            fi
+        else
+            log info "No elevated credentials available. Trying to connect with standard user."
+            if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -e 'quit'; then
+                if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -e "use $DB_DATABASE"; then
+                    log ok "Connection Possible. Database already exists."
+                else
+                    create_database "$DB_USERNAME" "$DB_PASSWORD"
+                fi
+            else
+                log err "Failed to connect to the database with standard credentials. Check your DB credentials and connection settings."
+                exit 1
+            fi
+        fi
+        install_tar "Provisioned"
     else
-      log info "No elevated SQL username found. Continuing with standard credentials."
-      elevated_username=""
-      elevated_password=""
+        log debug "No provision."
     fi
-
-
-    if [ -n "$elevated_username" ]; then
-      if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$elevated_username" -p"$elevated_password" -e 'quit'; then
-        log ok "Elevated credentials: Connection successful."
-        if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$elevated_username" -p"$elevated_password" -e "use $DB_DATABASE"; then
-          log ok "Connection Possible. Database already exists."
-        else
-          log warn "Connection Possible. Database does not exist."
-          log info "Trying to create database now."
-          create_database "$elevated_username" "$elevated_password"
-        fi
-      else
-        log err "Failed to connect using elevated credentials. Check your elevated DB credentials and connection settings."
-        if [ -z "$elevated_password" ]; then
-          elevated_password=$(prompt "DB_ELEVATED_PASSWORD" "" "Enter the password for elevated user")
-        fi
-        if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$elevated_username" -p"$elevated_password" -e 'quit'; then
-          log debug "Connection successful with provided elevated credentials."
-          if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$elevated_username" -p"$elevated_password" -e "use $DB_DATABASE"; then
-            log ok "Connection Possible. Database already exists."
-          else
-            create_database "$elevated_username" "$elevated_password"
-          fi
-        else
-          exit 1
-        fi
-      fi
-    else
-      log info "No elevated credentials available. Trying to connect with standard user."
-      if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -e 'quit'; then
-        if mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" -e "use $DB_DATABASE"; then
-          log ok "Connection Possible. Database already exists."
-        else
-          create_database "$DB_USERNAME" "$DB_PASSWORD"
-        fi
-      else
-        log err "Failed to connect to the database with standard credentials. Check your DB credentials and connection settings."
-        exit 1
-      fi
-    fi
-    install_tar "Provisioned"
-  else
-    log debug "No provision."
-  fi
 }
 
 # shellcheck source=.inmanage/.env.inmanage
@@ -272,11 +269,10 @@ check_env() {
         log debug "Self configuration found"
         # shellcheck source=.inmanage/.env.inmanage
         . "$INM_SELF_ENV_FILE"
-        if [ "$(whoami)" != "$INM_ENFORCED_USER" ]; then
-            INM_SCRIPT_PATH=$(realpath "$0")
-            log info "Switching to user '$INM_ENFORCED_USER'."
-            exec sudo -u "$INM_ENFORCED_USER" bash "$INM_SCRIPT_PATH" "$@"
-            exit 0
+        if [ "$(whoami)" != "$INM_ENFORCED_USER" ] && [ -n "$INM_ENFORCED_USER" ]; then # Added condition to check if INM_ENFORCED_USER is set
+            log warn "Script intended to run as '$INM_ENFORCED_USER', but running as '$(whoami)'. Proceeding without user switch due to lack of sudo."
+            log warn "Ensure your current user has appropriate file system permissions for all operations."
+            # The 'exec sudo' line has been removed from here.
         fi
         check_missing_settings
         check_provision_file
@@ -341,17 +337,18 @@ create_own_config() {
         target="$INM_BASE_DIRECTORY.inmanage/inmanage.sh"
         link="$INM_BASE_DIRECTORY/inmanage.sh"
 
+        # Note: Symlink creation still requires permissions in the base directory
         if [ -L "$link" ]; then
             current_target=$(readlink "$link")
             if [ "$current_target" == "$target" ]; then
                 log debug "The symlink is correct."
             else
                 log warn "The symlink is incorrect. Updating."
-                ln -sf "$target" "$link"
+                ln -sf "$target" "$link" || log err "Failed to update symlink. Check permissions."
             fi
         else
             log debug "The symlink does not exist. Creating."
-            ln -s "$target" "$link"
+            ln -s "$target" "$link" || log err "Failed to create symlink. Check permissions."
         fi
 
         env_example_file="$INM_BASE_DIRECTORY.inmanage/.env.example"
@@ -391,7 +388,7 @@ check_missing_settings() {
 }
 
 check_commands() {
-    local commands=("curl" "wc" "tar" "cp" "mv" "mkdir" "chown" "find" "rm" "mysqldump" "mysql" "grep" "xargs" "php" "touch" "sed" "sudo" "tee")
+    local commands=("curl" "wc" "tar" "cp" "mv" "mkdir" "chown" "find" "rm" "mysqldump" "mysql" "grep" "xargs" "php" "touch" "sed") # Removed "sudo"
     local missing_commands=()
 
     for cmd in "${commands[@]}"; do
@@ -502,7 +499,10 @@ install_tar() {
             log info "Installation aborted."
             exit 0
         fi
-        mv "$INM_BASE_DIRECTORY$INM_INSTALLATION_DIRECTORY" "_last_IN_$timestamp"
+        mv "$INM_BASE_DIRECTORY$INM_INSTALLATION_DIRECTORY" "_last_IN_$timestamp" || {
+            log err "Failed to rename existing installation directory. Check permissions for '$INM_BASE_DIRECTORY$INM_INSTALLATION_DIRECTORY'."
+            exit 1
+        }
     fi
 
     log info "Installation starts now"
@@ -510,13 +510,13 @@ install_tar() {
     download_ninja
 
     mkdir "$INM_INSTALLATION_DIRECTORY" || {
-        log err "Failed to create installation directory"
+        log err "Failed to create installation directory. Check permissions for '$INM_INSTALLATION_DIRECTORY'."
         exit 1
     }
-    chown "$INM_ENFORCED_USER" "$INM_INSTALLATION_DIRECTORY" || {
-        log err "Failed to change owner"
-        exit 1
-    }
+    # chown "$INM_ENFORCED_USER" "$INM_INSTALLATION_DIRECTORY" || { # This chown will now run as current user
+    #     log err "Failed to change owner. Ensure current user has permission to chown, or manually set permissions."
+    #     exit 1
+    # }
     log info "Unpacking tar"
     tar -xzf invoiceninja.tar -C "$INM_INSTALLATION_DIRECTORY" || {
         log err "Failed to unpack"
@@ -568,23 +568,23 @@ install_tar() {
             printf "The database and user are configured.\n\n"
             printf "${YELLOW}It's a good time to make your first backup now!${RESET}\n\n"
             printf "${BOLD}Cronjob Setup:${RESET}\n"
-            printf "  ${CYAN}* * * * * $INM_ENFORCED_USER $INM_ARTISAN_STRING schedule:run >> /dev/null 2>&1${RESET}\n\n"
+            printf "  ${CYAN}* * * * * $(whoami) $INM_ARTISAN_STRING schedule:run >> /dev/null 2>&1${RESET}\n\n" # Adjusted cronjob user
             printf "${BOLD}Scheduled Backup:${RESET}\n"
-            printf "  ${CYAN}* 3 * * * $INM_ENFORCED_USER $INM_ENFORCED_SHELL -c \"$INM_BASE_DIRECTORY./inmanage.sh backup\" >> /dev/null 2>&1${RESET}\n\n"
+            printf "  ${CYAN}* 3 * * * $(whoami) $INM_ENFORCED_SHELL -c \"$INM_BASE_DIRECTORY./inmanage.sh backup\" >> /dev/null 2>&1${RESET}\n\n" # Adjusted cronjob user
         } || {
             log err "Standard user creation failed"
             exit 1
         }
-        else
+    else
         printf "\n${BLUE}%s${RESET}\n" "========================================"
         printf "${GREEN}${BOLD}Setup Complete!${RESET}\n\n"
         printf "${WHITE}Open your browser at your configured address ${CYAN}https://your.url/setup${RESET} to carry on with database setup.${RESET}\n\n"
         printf "${YELLOW}It's a good time to make your first backup now!${RESET}\n\n"
         printf "${BOLD}Cronjob Setup:${RESET}\n"
-        printf "  ${CYAN}* * * * * $INM_ENFORCED_USER $INM_ARTISAN_STRING schedule:run >> /dev/null 2>&1${RESET}\n\n"
+        printf "  ${CYAN}* * * * * $(whoami) $INM_ARTISAN_STRING schedule:run >> /dev/null 2>&1${RESET}\n\n" # Adjusted cronjob user
         printf "${BOLD}Scheduled Backup:${RESET}\n"
-        printf "  ${CYAN}* 3 * * * $INM_ENFORCED_USER $INM_ENFORCED_SHELL -c \"$INM_BASE_DIRECTORY./inmanage.sh backup\" >> /dev/null 2>&1${RESET}\n\n"
-        fi
+        printf "  ${CYAN}* 3 * * * $(whoami) $INM_ENFORCED_SHELL -c \"$INM_BASE_DIRECTORY./inmanage.sh backup\" >> /dev/null 2>&1${RESET}\n\n" # Adjusted cronjob user
+    fi
 
     cd "$INM_BASE_DIRECTORY" && rm -Rf "$INM_TEMP_DOWNLOAD_DIRECTORY"
     exit 0
@@ -613,13 +613,13 @@ run_update() {
     log info "Update starts now."
     download_ninja
     mkdir "$INM_INSTALLATION_DIRECTORY" || {
-        log err "Failed to create installation directory"
+        log err "Failed to create installation directory. Check permissions for '$INM_INSTALLATION_DIRECTORY'."
         exit 1
     }
-    chown "$INM_ENFORCED_USER" "$INM_INSTALLATION_DIRECTORY" || {
-        log err "Failed to change owner"
-        exit 1
-    }
+    # chown "$INM_ENFORCED_USER" "$INM_INSTALLATION_DIRECTORY" || { # This chown will now run as current user
+    #     log err "Failed to change owner. Ensure current user has permission to chown, or manually set permissions."
+    #     exit 1
+    # }
     log info "Unpacking Data."
     tar -xzf invoiceninja.tar -C "$INM_INSTALLATION_DIRECTORY" || {
         log err "Failed to unpack"

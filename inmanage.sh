@@ -60,7 +60,7 @@ log() {
 # ====== Array Setup ======
 declare -A default_settings=(
     ["INM_BASE_DIRECTORY"]="$PWD/"
-    ["INM_INSTALLATION_DIRECTORY"]="./invoiceninja"
+    ["INM_INSTALLATION_DIRECTORY"]="."
     ["INM_ENV_FILE"]="\${INM_BASE_DIRECTORY}\${INM_INSTALLATION_DIRECTORY}/.env"
     ["INM_TEMP_DOWNLOAD_DIRECTORY"]="./._in_tempDownload"
     ["INM_DUMP_OPTIONS"]="--default-character-set=utf8mb4 --no-tablespaces --skip-add-drop-table --quick --single-transaction"

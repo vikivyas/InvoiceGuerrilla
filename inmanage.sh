@@ -92,6 +92,7 @@ declare -A prompt_texts=(
     ["INM_INSTALLATION_DIRECTORY"]="The current/future Invoice Ninja folder? Must be relative from \$INM_BASE_DIRECTORY and can start with a . dot."
     ["INM_DUMP_OPTIONS"]="Modify database dump options: In doubt, keep defaults."
     ["INM_BACKUP_DIRECTORY"]="Backup Directory?"
+    ["INM_KEEP_BACKUPS"]="Backup retention? Set to 7 for daily backups to keep 7 snapshots. Ensure enough disk space."
     ["INM_FORCE_READ_DB_PW"]="Include DB password in backup? (Y): May expose the password to other server users during runtime. (N): Assumes a secure .my.cnf file with credentials to avoid exposure."
     ["INM_ENFORCED_USER"]="Script user? This script will run as the current user. Ensure it matches who you want to own the files. Default is your current user ($(whoami))." # Updated prompt
     ["INM_ENFORCED_SHELL"]="Which shell should be used? In doubt, keep as is."
@@ -133,12 +134,12 @@ parse_options() {
 
 print_logo() {
     printf "${BLUE}"
-    printf "    _____  __              __\n"
-    printf "   / _/ | / /___ ___  ____ _____  ____ _____ ____  / /\n"
-    printf "  / // |/ / __ \`__ \\/ __ \`/ __ \\/ __ \`/ __ \`/ _ \\/ / \n"
-    printf " _/ // /|  / / / / / / /_/ / / / / /_/ / /_/ /  __/_/  \n"
-    printf "/___/_/ |_/_/ /_/ /_/\\__,_/_/ /_/\\__,_/\\__, /\\___(_)   \n"
-    printf "                                      /____/         ${RESET}\n"
+    printf "    __      __         __ __\n"
+    printf "   / /____ / /_ ____ _/ // /_   ____\n"
+    printf "  / // __// __// __//_  _// /_ / __/\n"
+    printf " / // /_ / /_ / /_  _  _// __// /_\n"
+    printf "/_//_/ /_/\__//_//_ /_///_//_/\__/\n"
+    printf "                                  ${RESET}\n"
     printf "${BLUE}${BOLD}INVOICE NINJA - MANAGEMENT SCRIPT${RESET}\n\n"
     printf "\n\n"
 }
@@ -235,7 +236,7 @@ check_provision_file() {
                         log ok "Connection Possible. Database already exists."
                     else
                         create_database "$elevated_username" "$elevated_password"
-                    fi
+                    F
                 else
                     exit 1
                 fi
@@ -293,7 +294,7 @@ check_gh_credentials() {
 create_own_config() {
     if touch "$INM_SELF_ENV_FILE"; then
         log ok "Write Permissions OK."
-        rm $INM_SELF_ENV_FILE
+        rm "$INM_SELF_ENV_FILE" # Fixed: Added quotes for safety
         echo -e " "
         echo -e "${YELLOW}========== Install Wizard ==========${NC}"
         echo -e " "
@@ -408,7 +409,7 @@ check_commands() {
         log err "Dependency Checks: The following commands are not available:"
         for missing in "${missing_commands[@]}"; do
             log err "  - $missing"
-        done
+        F
         log note "Please install the missing commands to proceed. Hints for different distributions: https://invoiceninja.github.io/en/self-host-installation/#linux-server-configs"
         exit 1
     else
@@ -586,6 +587,16 @@ install_tar() {
         printf "  ${CYAN}* 3 * * * $(whoami) $INM_ENFORCED_SHELL -c \"$INM_BASE_DIRECTORY./inmanage.sh backup\" >> /dev/null 2>&1${RESET}\n\n" # Adjusted cronjob user
     fi
 
+    # --- Start: Added permissions for storage and cache ---
+    log info "Setting permissions for storage and bootstrap/cache directories."
+    chmod -R 775 "$INM_BASE_DIRECTORY$INM_INSTALLATION_DIRECTORY/storage" || {
+        log warn "Failed to set 775 permissions on storage directory. Check if your user has write access."
+    }
+    chmod -R 775 "$INM_BASE_DIRECTORY$INM_INSTALLATION_DIRECTORY/bootstrap/cache" || {
+        log warn "Failed to set 775 permissions on bootstrap/cache directory. Check if your user has write access."
+    }
+    # --- End: Added permissions for storage and cache ---
+
     cd "$INM_BASE_DIRECTORY" && rm -Rf "$INM_TEMP_DOWNLOAD_DIRECTORY"
     exit 0
 }
@@ -729,6 +740,17 @@ run_update() {
     else
         log info "PDF generation is set to '$PDF_GENERATOR'"
     fi
+
+    # --- Start: Added permissions for storage and cache ---
+    log info "Setting permissions for storage and bootstrap/cache directories."
+    chmod -R 775 "$INM_BASE_DIRECTORY$INM_INSTALLATION_DIRECTORY/storage" || {
+        log warn "Failed to set 775 permissions on storage directory. Check if your user has write access."
+    }
+    chmod -R 775 "$INM_BASE_DIRECTORY$INM_INSTALLATION_DIRECTORY/bootstrap/cache" || {
+        log warn "Failed to set 775 permissions on bootstrap/cache directory. Check if your user has write access."
+    }
+    # --- End: Added permissions for storage and cache ---
+
     cleanup_old_versions
     log ok "Update completed successfully!"
 }
@@ -853,7 +875,7 @@ function_caller() {
         cleanup_old_versions
         ;;
     cleanup_backups)
-        cleanup_old_backups
+        cleanup_backups
         ;;
     *)
         return 1

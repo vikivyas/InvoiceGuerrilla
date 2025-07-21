@@ -236,7 +236,7 @@ check_provision_file() {
                         log ok "Connection Possible. Database already exists."
                     else
                         create_database "$elevated_username" "$elevated_password"
-                    F
+                    fi
                 else
                     exit 1
                 fi
@@ -409,7 +409,7 @@ check_commands() {
         log err "Dependency Checks: The following commands are not available:"
         for missing in "${missing_commands[@]}"; do
             log err "  - $missing"
-        F
+        fi
         log note "Please install the missing commands to proceed. Hints for different distributions: https://invoiceninja.github.io/en/self-host-installation/#linux-server-configs"
         exit 1
     else

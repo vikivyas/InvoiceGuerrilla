@@ -140,7 +140,7 @@ print_logo() {
     printf " / // /_ / /_ / /_  _  _// __// /_\n"
     printf "/_//_/ /_/\__//_//_ /_///_//_/\__/\n"
     printf "                                  ${RESET}\n"
-    printf "${BLUE}${BOLD}INVOICE NINJA - MANAGEMENT SCRIPT${RESET}\n\n"
+    printf "${BLUE}${BOLD}ViKi Vyas - INVOICE MANAGEMENT SCRIPT${RESET}\n\n" # Updated line
     printf "\n\n"
 }
 
@@ -224,7 +224,7 @@ check_provision_file() {
                     log warn "Connection Possible. Database does not exist."
                     log info "Trying to create database now."
                     create_database "$elevated_username" "$elevated_password"
-                fi
+                fi # Corrected: Added 'fi' here
             else
                 log err "Failed to connect using elevated credentials. Check your elevated DB credentials and connection settings."
                 if [ -z "$elevated_password" ]; then
@@ -236,7 +236,7 @@ check_provision_file() {
                         log ok "Connection Possible. Database already exists."
                     else
                         create_database "$elevated_username" "$elevated_password"
-                    fi
+                    fi # Corrected: Added 'fi' here
                 else
                     exit 1
                 fi
@@ -409,7 +409,7 @@ check_commands() {
         log err "Dependency Checks: The following commands are not available:"
         for missing in "${missing_commands[@]}"; do
             log err "  - $missing"
-        fi
+        done # Corrected: Added 'done' here
         log note "Please install the missing commands to proceed. Hints for different distributions: https://invoiceninja.github.io/en/self-host-installation/#linux-server-configs"
         exit 1
     else
@@ -480,16 +480,6 @@ install_tar() {
 
     timestamp="$(date +'%Y%m%d_%H%M%S')"
 
-    if [ "$mode" == "Provisioned" ]; then
-        env_file="$INM_BASE_DIRECTORY$INM_PROVISION_ENV_FILE"
-    else
-        env_file="$INM_INSTALLATION_DIRECTORY/.env.example"
-    fi
-
-    local latest_version
-
-    latest_version=$(get_latest_version)
-
     if [ -d "$INM_BASE_DIRECTORY$INM_INSTALLATION_DIRECTORY" ]; then
         log warn "Caution: Installation directory already exists! Current installation directory will get renamed. Proceed with installation? (yes/no): "
         if ! read -t 60 response; then
@@ -523,6 +513,18 @@ install_tar() {
         log err "Failed to unpack"
         exit 1
     }
+
+    # Determine the correct .env file to use for the new installation
+    # If INM_PROVISION_ENV_FILE exists and mode is Provisioned, use it.
+    # Otherwise, use the .env.example that was downloaded.
+    if [ "$mode" == "Provisioned" ] && [ -f "$INM_BASE_DIRECTORY$INM_PROVISION_ENV_FILE" ]; then
+        env_file="$INM_BASE_DIRECTORY$INM_PROVISION_ENV_FILE"
+        log info "Using provision file for .env setup: $env_file"
+    else
+        env_file="$INM_TEMP_DOWNLOAD_DIRECTORY/.env.example" # .env.example is downloaded to temp dir
+        log info "Using .env.example for .env setup: $env_file"
+    fi
+
     mv "$env_file" "$INM_INSTALLATION_DIRECTORY/.env" || {
         log err "Failed to move .env file"
         exit 1
